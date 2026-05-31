@@ -11,5 +11,9 @@ venv/
 # Local database / storage
 storage/db.json
 
+# Environment files
+.env
+*.env
+
 # VS Code
 .vscode/

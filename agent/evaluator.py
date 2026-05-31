@@ -1,14 +1,28 @@
-from google import genai
+import json
+from groq import Groq
 from .schemas import ActivityContext, EvaluationResult
-from config.settings import GEMINI_API_KEY
+
+# Assuming you added GROQ_API_KEY to your config/settings.py
+from config.settings import GROQ_API_KEY 
 
 class Evaluator:
     def __init__(self):
-        self.client = genai.Client(api_key=GEMINI_API_KEY)
+        # Initialize Groq Client
+        self.client = Groq(api_key=GROQ_API_KEY)
 
     def evaluate(self, context: ActivityContext) -> EvaluationResult:
-        prompt = f"""
+        # 1. Extract the JSON schema from your Pydantic model
+        schema_json = json.dumps(EvaluationResult.model_json_schema())
+
+        # 2. Tell Groq EXACTLY what JSON structure you want in the system prompt
+        system_prompt = f"""
         You are an AI productivity evaluator.
+        You MUST respond in pure JSON format.
+        Your JSON must exactly match this schema: {schema_json}
+        """
+        
+        # 3. Provide the context in the user prompt
+        user_prompt = f"""
         Analyze the user's current activity against their declared goal.
         
         Goal: "{context.goal}"
@@ -20,14 +34,17 @@ class Evaluator:
         Be strict. Watching entertaining videos while studying is NOT aligned.
         """
         
-        response = self.client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt,
-            config={
-                "response_mime_type": "application/json",
-                "response_schema": EvaluationResult,
-                "temperature": 0.1 
-            }
+        # 4. Call Groq
+        response = self.client.chat.completions.create(
+            model='llama-3.1-8b-instant',
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            response_format={"type": "json_object"}, # Force JSON mode
+            temperature=0.1 
         )
         
-        return EvaluationResult.model_validate_json(response.text)
+        # 5. Extract the text and validate it back into Pydantic
+        raw_json = response.choices[0].message.content
+        return EvaluationResult.model_validate_json(raw_json)
